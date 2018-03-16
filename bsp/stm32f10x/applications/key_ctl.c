@@ -63,6 +63,11 @@ void key_value_all_clear(void);
 u8 beep_enable = 1;//0,off; 1,on
 
 u8 cam_para_mode=0;
+static void timeout1(void* parameter);
+
+/* 定时器的控制块 */
+static rt_timer_t timer1_soft;
+u8 osd_enter_state=0;//0,closed;1,opened
 
 
 u8 key_val_buffer_cnt = 0;
@@ -1001,9 +1006,17 @@ static void joystick_handle(void)
 
 	lrudcmd2 = lrudcmd2|lrudcmd;
 
-	lrspeed = joystick_lr_speed;
-	udspeed = joystick_ud_speed;
 
+	if(osd_enter_state)
+	{// in the osd menu
+		lrspeed = 0;
+		udspeed = 0;
+	}
+	else
+	{
+		lrspeed = joystick_lr_speed;
+		udspeed = joystick_ud_speed;
+	}
 
 	if(joystick_lr_speed==0 && joystick_ud_speed==0  )
 	{
@@ -1062,7 +1075,7 @@ static void joystick_handle(void)
 	
 }
 
-#define	VOLATAGE_SPEED_VAL_BASE	 200
+#define	VOLATAGE_SPEED_VAL_BASE	 20//200
 
 
 static u16  Get_joystick_Value(void)
@@ -1545,6 +1558,7 @@ u16 num_to_baudrate(u8 numb)
 
 extern int flash_program_my(void);
 
+
 void key_analyze(u16 val)
 {
 
@@ -1584,6 +1598,23 @@ void key_analyze(u16 val)
 				break;
 			}
 
+			if(key_num_val==90)
+			{
+				osd_enter_state= 1;
+
+				if (timer1_soft == RT_NULL)
+				{
+					/* 创建定时器1 */
+					timer1_soft = rt_timer_create("timer1", /* 定时器名字是 timer1 */
+					timeout1, /* 超时时回调的处理函数 */
+					RT_NULL, /* 超时函数的入口参数 */
+					180000, /* 定时长度，以OS Tick为单位，即10个OS Tick */
+					RT_TIMER_FLAG_PERIODIC); /* 周期性定时器 */
+					/* 启动定时器 */
+					if (timer1_soft != RT_NULL) rt_timer_start(timer1_soft);
+				}
+			}
+			
 		}
 		key_value_all_clear();
 
@@ -1609,6 +1640,14 @@ void key_analyze(u16 val)
 				osd_line3_disp(1);
 				osd_opt_message_disp(16+iris_mode,OSD_MSG_DISP_MAX_SECOND);
 				rs485_get_data_from_slave();
+
+			}
+
+			
+			if(key_num_val==90)
+			{
+				osd_enter_state= 0;
+				rt_timer_delete(timer1_soft);
 
 			}
 
@@ -2962,6 +3001,18 @@ u8 rs485_get_data_from_slave_thread_entry(void* parameter)
 }
 
 
+/* 定时器1超时函数 */
+static void timeout1(void* parameter)
+{
+
+
+	osd_enter_state=0;
+	rt_timer_delete(timer1_soft);
+
+
+}
+
+
 
 int rt_key_ctl_init(void)
 {
@@ -2981,6 +3032,16 @@ int rt_key_ctl_init(void)
 	sizeof(key_mb_pool)/4, /* 大小是mb_pool/4，因为每封邮件的大小是4字节*/
 	RT_IPC_FLAG_FIFO); /* 采用FIFO方式进行线程等待*/
 
+	rt_system_timer_thread_init();
+
+	/* 创建定时器1 */
+	timer1_soft = rt_timer_create("timer1", /* 定时器名字是 timer1 */
+	timeout1, /* 超时时回调的处理函数 */
+	RT_NULL, /* 超时函数的入口参数 */
+	180000, /* 定时长度，以OS Tick为单位，即10个OS Tick */
+	RT_TIMER_FLAG_PERIODIC); /* 周期性定时器 */
+	/* 启动定时器 */
+	if (timer1_soft != RT_NULL) rt_timer_start(timer1_soft);
 
 		
 	key_pin_init();
